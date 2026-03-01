@@ -1,4 +1,4 @@
-# 📘 My Local Study LLM Setup
+# 📘 Local LLM Setup
 
 This guide explains how to set up your private Study AI on your Mac. This app uses Node.js for the logic, SQLite for your history, and Ollama to run the models locally.
 
