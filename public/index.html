@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Study LLM</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="stylesheets/style.css">
+</head>
+<body>
+
+<div id="sidebar">
+
+
+    <div class="model-select-wrapper">
+        <label style="font-size: 11px; color: #888; display: block; margin-bottom: 5px;">ACTIVE MODEL</label>
+        <select id="model-select" class="inline-input">
+            <option value="gemma3:4b">Gemma 3 (Fast)</option>
+            <option value="qwen3:latest">Qwen 3 (Coding)</option>
+            <option value="deepseek-r1">DeepSeek (Reasoning)</option>
+        </select>
+    </div>
+
+    <button id="quick-chat-btn" onclick="loadSession(0)" class="quick-chat-btn">⚡ Quick Chat</button>
+    <hr style="border: 0; border-top: 1px solid #333; margin-bottom: 15px;">
+
+    <button class="new-topic-btn" onclick="showTopicInput()">+ New Study Topic</button>
+    <input type="text" id="inline-topic-input" style="display:none;" placeholder="Topic name..." onkeydown="if(event.key==='Enter') saveInlineTopic()">
+
+    <div id="history-list"></div>
+</div>
+
+<div id="app-container">
+    <div id="chat-container"></div>
+    <div class="input-wrapper">
+        <div class="input-box">
+            <textarea id="prompt" rows="1" placeholder="Ask your LLM..." oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+            <button id="send-btn" onclick="sendQuery()">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2L15 22L11 13L2 9L22 2Z"/></svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script src="scripts/helper.js"></script>
+</body>
+</html>
