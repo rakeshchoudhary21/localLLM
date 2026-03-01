@@ -1,6 +1,6 @@
 # 📘 Local LLM Setup
 
-This guide explains how to set up your private Study AI on your Mac. This app uses Node.js for the logic, SQLite for your history, and Ollama to run the models locally.
+This guide explains how to set up your private large lang model on your Mac. This app uses Node.js for the logic, SQLite for your history, and Ollama to run the models locally.
 
 ---
 
@@ -8,8 +8,8 @@ This guide explains how to set up your private Study AI on your Mac. This app us
 
 ### Ollama (The AI Engine)
 1. Download the Mac version from https://ollama.com.
-2. Drag the Ollama app into your Applications folder and launch it.
-3. Ensure the Ollama icon is visible in your Mac menu bar.
+2. Or use this command for ollama installation: `curl -fsSL https://ollama.com/install.sh | sh`
+3. verify ollama installation with: `ollama list`
 
 ### Homebrew & Node.js
 On Mac, the most efficient way to manage software is via Homebrew. Open your Terminal and follow these steps:
@@ -32,7 +32,7 @@ On Mac, the most efficient way to manage software is via Homebrew. Open your Ter
 ## 2. Download the Models
 Before running the app, you need to "pull" the models to your local drive. Open your terminal and run:
 
-* General Study (Gemma 3): `ollama pull gemma3:4b`
+* General Queries (Gemma 3): `ollama pull gemma3:4b`
 * Coding & Logic (Qwen 3): `ollama pull qwen3:latest`
 * Deep Reasoning (DeepSeek):  `ollama pull deepseek-r1`
 
