@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local Study LLM</title>
+    <title>Personal LLM</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="stylesheets/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎓</text></svg>">
 </head>
 <body>
 
@@ -15,9 +16,10 @@
     <div class="model-select-wrapper">
         <label style="font-size: 11px; color: #888; display: block; margin-bottom: 5px;">ACTIVE MODEL</label>
         <select id="model-select" class="inline-input">
-            <option value="gemma3:4b">Gemma 3 (Fast)</option>
+            <option value="gemma3:latest">Gemma 3 (Fast)</option>
             <option value="qwen3:latest">Qwen 3 (Coding)</option>
-            <option value="deepseek-r1">DeepSeek (Reasoning)</option>
+            <option value="llama3.1:latest">Llama Meta (Deep Reasoning)</option>
+            <option value="mistral:latest">Mistral (Deep technical)</option>
         </select>
     </div>
 

@@ -73,11 +73,25 @@ app.get('/sessions/:id/messages', wrap(async (req, res) => {
 
 app.post('/ask', wrap(async (req, res) => {
     const { prompt, sessionId, model } = req.body;
-
-    // Fallback: If sessionId is undefined or null, default to 0 (Quick Chat)
     const activeSession = (sessionId === undefined || sessionId === null) ? 0 : sessionId;
 
-    // Save User message immediately
+    // 1. Get previous messages for this session from the global 'db' variable
+    // This allows the new model to see what the previous model said
+    const history = await db.all(
+        "SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC",
+        [activeSession]
+    );
+
+    // 2. Format history for Ollama (role must be 'assistant' or 'user')
+    const messages = history.map(m => ({
+        role: m.role,
+        content: m.content
+    }));
+
+    // 3. Add the NEW user prompt to the history array
+    messages.push({ role: 'user', content: prompt });
+
+    // 4. Save the NEW user prompt to the database immediately
     await db.run('INSERT INTO messages (session_id, role, content) VALUES (?, "user", ?)', [activeSession, prompt]);
 
     try {
@@ -86,7 +100,7 @@ app.post('/ask', wrap(async (req, res) => {
             url: 'http://127.0.0.1:11434/api/chat',
             data: {
                 model: model || 'gemma3:4b',
-                messages: [{ role: "user", content: prompt }],
+                messages: messages, // Send the WHOLE conversation history here
                 stream: true
             },
             responseType: 'stream'
@@ -101,6 +115,7 @@ app.post('/ask', wrap(async (req, res) => {
                 if (!line.trim()) continue;
                 try {
                     const json = JSON.parse(line);
+                    // Note: Ollama /api/chat uses json.message.content
                     if (json.message && json.message.content) {
                         const content = json.message.content;
                         fullAiText += content;
@@ -111,12 +126,18 @@ app.post('/ask', wrap(async (req, res) => {
         });
 
         response.data.on('end', async () => {
-            // Save Assistant response to the same activeSession
+            // 5. Save the AI's response to the database so it's remembered next time
             await db.run('INSERT INTO messages (session_id, role, content) VALUES (?, "assistant", ?)', [activeSession, fullAiText]);
             res.end();
         });
     } catch (err) {
-        console.error("Ollama Error:", err.message);
-        res.status(500).json({ error: "Ollama connection failed. Is it running?" });
+        console.error("Ollama connection error:", err.message);
+        res.status(500).json({ error: "Ollama connection failed." });
     }
+}));
+
+// DELETE a specific message by its ID
+app.delete('/messages/:id', wrap(async (req, res) => {
+    await db.run('DELETE FROM messages WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
 }));

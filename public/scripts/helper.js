@@ -22,9 +22,10 @@ async function loadSession(id) {
         const messages = await res.json();
 
         if (messages.length === 0) {
-            appendMsg('ai', id === 0 ? "Quick Chat ready. How can I help?" : "New session started.");
+            appendMsg('ai', id === 0 ? "Welcome Home." : "New session started.");
         } else {
-            messages.forEach(m => appendMsg(m.role === 'assistant' ? 'ai' : 'user', m.content));
+            // Pass the message ID from the database to appendMsg
+            messages.forEach(m => appendMsg(m.role === 'assistant' ? 'ai' : 'user', m.content, m.id));
         }
         renderSidebar();
     } catch (err) {
@@ -114,14 +115,39 @@ async function saveSubSession(topicId) {
     input.value = ''; input.style.display = 'none';
 }
 
-function appendMsg(role, text) {
+function appendMsg(role, text, msgId = null) {
     const chatContainer = document.getElementById('chat-container');
     const div = document.createElement('div');
     div.className = `message ${role === 'user' ? 'user-message' : 'ai-message'}`;
-    div.innerHTML = `<div class="content">${role === 'ai' ? marked.parse(text) : text}</div>`;
+
+    // Add the delete button if we have an ID
+    let deleteBtn = '';
+    if (msgId) {
+        deleteBtn = `<button class="delete-msg-btn" onclick="deleteSingleMessage(${msgId}, this)">✕</button>`;
+    }
+
+    div.innerHTML = `
+        ${deleteBtn}
+        <div class="content">${role === 'ai' ? marked.parse(text) : text}</div>
+    `;
+
     chatContainer.appendChild(div);
     chatContainer.scrollTop = chatContainer.scrollHeight;
     return div;
+}
+
+async function deleteSingleMessage(msgId, btnElement) {
+    if (!confirm("Delete this specific message?")) return;
+
+    try {
+        const res = await fetch(`/messages/${msgId}`, { method: 'DELETE' });
+        if (res.ok) {
+            // Remove the message from the UI instantly
+            btnElement.parentElement.remove();
+        }
+    } catch (err) {
+        console.error("Failed to delete message:", err);
+    }
 }
 
 async function sendQuery() {
