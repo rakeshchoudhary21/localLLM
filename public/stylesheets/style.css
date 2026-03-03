@@ -7,7 +7,7 @@ body {
 
 /* SIDEBAR */
 #sidebar {
-  width: 280px; background: #171717; color: #efefef;
+  width: 280px; background: #000000; color: #efefef;
   padding: 20px; display: flex; flex-direction: column; flex-shrink: 0;
 }
 .quick-chat-btn {
@@ -16,12 +16,12 @@ body {
   transition: 0.2s; width: 100%; text-align: left;
 }
 .quick-chat-btn:hover { background: #555; }
-.quick-chat-btn.active { background: #1a73e8; color: white; }
+.quick-chat-btn.active { background: #6608ca; color: white; }
 
 /* Sidebar Button Styling */
 .new-topic-btn {
   /* Set the button background to a rich green color */
-  background: #28a745;
+  background: #cd0dda;
   /* Set the text and icon color to white */
   color: white;
   /* Maintain a blue border to match the original style */
