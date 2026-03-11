@@ -3,31 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Personal LLM</title>
+    <title>Rakesh's Personal AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="stylesheets/style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎓</text></svg>">
 </head>
 <body>
 
-<div id="sidebar">
-
-
-    <div class="model-select-wrapper">
-        <label style="font-size: 11px; color: #888; display: block; margin-bottom: 5px;">ACTIVE MODEL</label>
-        <select id="model-select" class="inline-input">
+<header id="top-bar">
+    <a href="#" class="top-bar-brand" onclick="loadSession(0); return false;" title="Home"><span class="top-bar-brand-name">Rakesh's</span><span class="top-bar-brand-tag">Personal AI</span></a>
+    <div class="top-bar-actions">
+        <label for="model-select" class="top-bar-label">Engine</label>
+        <select id="model-select" class="top-bar-select" title="AI model">
             <option value="gemma3:latest">Gemma 3 (Fast)</option>
-            <option value="qwen3:latest">Qwen 3 (Coding)</option>
-            <option value="llama3.1:latest">Llama Meta (Deep Reasoning)</option>
-            <option value="mistral:latest">Mistral (Deep technical)</option>
+            <option value="qwen2.5-coder">Qwen 2.5-Coder (Coding)</option>
+            <option value="deepseek-r1:14b">DeepSeek R1(Reasoning)</option>
+
         </select>
     </div>
+</header>
 
-    <button id="quick-chat-btn" onclick="loadSession(0)" class="quick-chat-btn">⚡ Quick Chat</button>
-    <hr style="border: 0; border-top: 1px solid #333; margin-bottom: 15px;">
+<div class="app-layout">
+<div id="sidebar">
+    <div class="sidebar-brand">
+        <span class="sidebar-brand-sub">Navigation</span>
+    </div>
+
+    <div class="sidebar-block library-section">
+        <div class="topic-header">📚 Knowledge Library</div>
+        <div id="library-list"></div>
+        <input type="file" id="file-upload" style="display:none" accept=".pdf" onchange="uploadBook(this)">
+        <button type="button" class="sidebar-upload-btn" onclick="document.getElementById('file-upload').click()">📎 Add PDF</button>
+    </div>
+
+    <hr class="sidebar-divider">
 
     <button class="new-topic-btn" onclick="showTopicInput()">+ New Study Topic</button>
-    <input type="text" id="inline-topic-input" style="display:none;" placeholder="Topic name..." onkeydown="if(event.key==='Enter') saveInlineTopic()">
+    <input type="text" id="inline-topic-input" class="sidebar-inline-input" style="display:none;" placeholder="Topic name..." onkeydown="if(event.key==='Enter') saveInlineTopic()">
 
     <div id="history-list"></div>
 </div>
@@ -35,13 +50,27 @@
 <div id="app-container">
     <div id="chat-container"></div>
     <div class="input-wrapper">
-        <div class="input-box">
-            <textarea id="prompt" rows="1" placeholder="Ask your LLM..." oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
-            <button id="send-btn" onclick="sendQuery()">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2L15 22L11 13L2 9L22 2Z"/></svg>
-            </button>
+        <div id="upload-progress-wrap" class="upload-progress-wrap" aria-live="polite" style="display: none;">
+            <div class="upload-progress-bar-bg">
+                <div id="upload-progress-bar" class="upload-progress-bar" style="width: 0%"></div>
+            </div>
+            <div id="upload-progress-label" class="upload-progress-label">Uploading…</div>
+        </div>
+        <input type="file" id="file-upload-chat" accept=".pdf" style="display:none" onchange="uploadBook(this)">
+        <div class="input-row">
+            <select id="book-select" class="input-book-select" title="Reference book for answers">
+                <option value="">No book</option>
+            </select>
+            <div class="input-box">
+                <button type="button" class="attach-btn attach-btn-chat" onclick="document.getElementById('file-upload-chat').click()" title="Upload PDF">📎</button>
+                <textarea id="prompt" rows="1" placeholder="Ask Rakesh's AI anything..." oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+                <button type="button" id="send-btn" class="send-btn" onclick="sendQuery()" title="Send message" aria-label="Send message">
+                    <svg class="send-btn-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                </button>
+            </div>
         </div>
     </div>
+</div>
 </div>
 
 <script src="scripts/helper.js"></script>

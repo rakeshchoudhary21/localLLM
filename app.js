@@ -2,35 +2,71 @@ const express = require('express');
 const axios = require('axios');
 const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
+const multer = require('multer');
+const { PDFParse } = require('pdf-parse');
 const app = express();
 
 app.use(express.json());
 app.use(express.static('public'));
 
+const upload = multer({ storage: multer.memoryStorage() });
+
 let db;
-// Standard async wrapper to catch errors
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+// Initialize Database
 (async () => {
     db = await open({ filename: './database.db', driver: sqlite3.Database });
-
+    
+    // Core structure
     await db.exec(`
         CREATE TABLE IF NOT EXISTS topics (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT);
         CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, topic_id INTEGER, subtitle TEXT);
         CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, role TEXT, content TEXT);
+        
+        -- Library for PDF content
+        CREATE TABLE IF NOT EXISTS library (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, 
+            filename TEXT, 
+            content TEXT
+        );
 
-        -- Use ID 0 for the Quick Chat system. 
-        -- This ensures frontend loadSession(0) always finds the right data.
         INSERT OR IGNORE INTO topics (id, title) VALUES (0, 'System');
         INSERT OR IGNORE INTO sessions (id, topic_id, subtitle) VALUES (0, 0, 'Quick Chat');
     `);
+    try {
+        await db.run('ALTER TABLE messages ADD COLUMN book_id INTEGER');
+    } catch (e) { /* column already exists */ }
+    try {
+        await db.run('ALTER TABLE messages ADD COLUMN model TEXT');
+    } catch (e) { /* column already exists */ }
 
-    app.listen(3000, () => console.log('Study App running at http://localhost:3000'));
+    app.listen(3000, () => console.log("Rakesh's Personal AI running at http://localhost:3000"));
 })();
 
-// --- API ROUTES ---
+// --- LIBRARY ACTIONS ---
 
-// GET topics (Exclude the System topic ID 0 from the sidebar list)
+app.post('/library/upload', upload.single('file'), wrap(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    const parser = new PDFParse({ data: req.file.buffer });
+    const data = await parser.getText();
+    const result = await db.run('INSERT INTO library (filename, content) VALUES (?, ?)', [req.file.originalname, data.text]);
+    res.json({ id: result.lastID, filename: req.file.originalname });
+}));
+
+app.get('/library', wrap(async (req, res) => {
+    const books = await db.all('SELECT id, filename FROM library');
+    res.json(books);
+}));
+
+app.delete('/library/:id', wrap(async (req, res) => {
+    await db.run('DELETE FROM library WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+}));
+
+// --- TOPIC & SESSION ACTIONS ---
+
 app.get('/topics', wrap(async (req, res) => {
     const topics = await db.all('SELECT * FROM topics WHERE id != 0');
     res.json(topics);
@@ -66,43 +102,97 @@ app.delete('/sessions/:id', wrap(async (req, res) => {
 }));
 
 app.get('/sessions/:id/messages', wrap(async (req, res) => {
-    // Explicitly fetching by session_id ensures history is never lost on switch
     const messages = await db.all('SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC', [req.params.id]);
     res.json(messages);
 }));
 
-app.post('/ask', wrap(async (req, res) => {
-    const { prompt, sessionId, model } = req.body;
-    const activeSession = (sessionId === undefined || sessionId === null) ? 0 : sessionId;
+// --- CHAT LOGIC ---
 
-    // 1. Get previous messages for this session from the global 'db' variable
-    // This allows the new model to see what the previous model said
-    const history = await db.all(
-        "SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC",
-        [activeSession]
+app.post('/ask', wrap(async (req, res) => {
+    let { prompt, sessionId, model, modelLabel, bookId, bookName } = req.body;
+    const activeSession = (sessionId !== undefined && sessionId !== null && sessionId !== '') ? Number(sessionId) : 0;
+
+    // 1. Get context from a single book only (user picks which book)
+    const SKIP_FRONT_CHARS = 2000;   // Skip TOC/index at start of book
+    const CHARS_BEFORE = 500;        // Chars before each keyword occurrence
+    const CHARS_AFTER = 500;         // Chars after (1000 total per occurrence)
+    const MAX_SNIPPETS_PER_BOOK = 20; // Cap to avoid blowing context window
+
+    let context = "";
+    let book = null;
+    if (bookId != null && bookId !== '') {
+        book = await db.get('SELECT id, filename, content FROM library WHERE id = ?', [bookId]);
+    } else if (bookName != null && String(bookName).trim() !== '') {
+        book = await db.get('SELECT id, filename, content FROM library WHERE filename = ?', [String(bookName).trim()]);
+    }
+
+    if (book && book.content) {
+        const text = book.content;
+        const textLower = (text || '').toLowerCase();
+        const keywords = prompt.toLowerCase().split(/\s+/).filter(w => w.length > 4);
+        const positions = [];
+
+        for (const k of keywords) {
+            let pos = textLower.indexOf(k, SKIP_FRONT_CHARS);
+            while (pos !== -1) {
+                positions.push(pos);
+                pos = textLower.indexOf(k, pos + 1);
+            }
+        }
+
+        const unique = [...new Set(positions)].sort((a, b) => a - b);
+
+        for (let i = 0; i < Math.min(unique.length, MAX_SNIPPETS_PER_BOOK); i++) {
+            const pos = unique[i];
+            const start = Math.max(SKIP_FRONT_CHARS, pos - CHARS_BEFORE);
+            const end = Math.min(text.length, pos + CHARS_AFTER);
+            context += text.substring(start, end) + "\n---\n";
+        }
+    }
+
+    // 2. Save User Message (and which book was selected for this turn)
+    const savedBookId = (bookId != null && bookId !== '') ? Number(bookId) : null;
+    await db.run(
+        'INSERT INTO messages (session_id, role, content, book_id) VALUES (?, "user", ?, ?)',
+        [activeSession, prompt, savedBookId]
     );
 
-    // 2. Format history for Ollama (role must be 'assistant' or 'user')
-    const messages = history.map(m => ({
-        role: m.role,
-        content: m.content
-    }));
+    // 3. Prepare Chat History
+    const history = await db.all("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC", [activeSession]);
+    const messagesForAi = history.map(m => ({ role: m.role, content: m.content }));
 
-    // 3. Add the NEW user prompt to the history array
-    messages.push({ role: 'user', content: prompt });
+    // 4. Inject Library Context into the latest user prompt if found (from the selected book only)
+    if (context) {
+        const lastMsgIndex = messagesForAi.length - 1;
+        const bookLabel = book ? ` (from "${book.filename || 'book'}")` : '';
+        messagesForAi[lastMsgIndex].content = `
+            Use the following context from the user's library${bookLabel} to help answer the question.
+            LIBRARY CONTEXT:
+            ${context}
+            
+            USER QUESTION: 
+            ${prompt}
+        `.trim();
+    }
 
-    // 4. Save the NEW user prompt to the database immediately
-    await db.run('INSERT INTO messages (session_id, role, content) VALUES (?, "user", ?)', [activeSession, prompt]);
+    // 5. Stream from Ollama (only send think:true for models that support it)
+    const modelId = (model || 'gemma3:latest').toLowerCase();
+    const isThinkingModel = /deepseek-r1|deepseek-v3|qwen3|gpt-oss/.test(modelId);
+    const isNonThinking = /qwen2\.5|qwen2\.5-coder|gemma/.test(modelId);
+    const supportsThinking = isThinkingModel && !isNonThinking;
 
     try {
+        const requestBody = {
+            model: model || 'gemma3:latest',
+            messages: messagesForAi,
+            stream: true
+        };
+        if (supportsThinking) requestBody.think = true;
+
         const response = await axios({
             method: 'post',
             url: 'http://127.0.0.1:11434/api/chat',
-            data: {
-                model: model || 'gemma3:4b',
-                messages: messages, // Send the WHOLE conversation history here
-                stream: true
-            },
+            data: requestBody,
             responseType: 'stream'
         });
 
@@ -115,28 +205,33 @@ app.post('/ask', wrap(async (req, res) => {
                 if (!line.trim()) continue;
                 try {
                     const json = JSON.parse(line);
-                    // Note: Ollama /api/chat uses json.message.content
-                    if (json.message && json.message.content) {
-                        const content = json.message.content;
-                        fullAiText += content;
-                        res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
+                    const msg = json.message || {};
+                    if (msg.thinking != null && msg.thinking !== '') {
+                        res.write(`data: ${JSON.stringify({ type: 'thinking', text: msg.thinking })}\n\n`);
+                    }
+                    if (msg.content != null && msg.content !== '') {
+                        fullAiText += msg.content;
+                        res.write(`data: ${JSON.stringify({ type: 'content', text: msg.content })}\n\n`);
                     }
                 } catch (e) {}
             }
         });
 
         response.data.on('end', async () => {
-            // 5. Save the AI's response to the database so it's remembered next time
-            await db.run('INSERT INTO messages (session_id, role, content) VALUES (?, "assistant", ?)', [activeSession, fullAiText]);
+            res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+            const savedModelLabel = (modelLabel != null && String(modelLabel).trim() !== '') ? String(modelLabel).trim() : null;
+            await db.run(
+                'INSERT INTO messages (session_id, role, content, model) VALUES (?, "assistant", ?, ?)',
+                [activeSession, fullAiText, savedModelLabel]
+            );
             res.end();
         });
     } catch (err) {
-        console.error("Ollama connection error:", err.message);
+        console.error("Ollama error:", err.message);
         res.status(500).json({ error: "Ollama connection failed." });
     }
 }));
 
-// DELETE a specific message by its ID
 app.delete('/messages/:id', wrap(async (req, res) => {
     await db.run('DELETE FROM messages WHERE id = ?', [req.params.id]);
     res.json({ success: true });
