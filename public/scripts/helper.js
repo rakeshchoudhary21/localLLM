@@ -1,6 +1,72 @@
 let currentSessionId = 0;
 
+const THEME_STORAGE_KEY = 'rakesh-ai-theme';
+
+function getStoredTheme() {
+    try {
+        const t = localStorage.getItem(THEME_STORAGE_KEY);
+        return (t === 'light' || t === 'dark') ? t : 'dark';
+    } catch (_) { return 'dark'; }
+}
+
+function applyTheme(theme) {
+    document.body.setAttribute('data-theme', theme);
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+    const toggle = document.getElementById('theme-toggle');
+    if (toggle) {
+        toggle.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+        toggle.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+    }
+}
+
+function toggleTheme() {
+    const next = document.body.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+}
+
+function toggleSidebarSection(headerEl) {
+    if (!headerEl) return;
+    const bodyId = headerEl.getAttribute('aria-controls');
+    const body = bodyId ? document.getElementById(bodyId) : headerEl.nextElementSibling;
+    const expanded = headerEl.getAttribute('aria-expanded') === 'true';
+    headerEl.setAttribute('aria-expanded', !expanded);
+    if (body) body.classList.toggle('is-collapsed', expanded);
+}
+
+function toggleTopicGroup(headerEl) {
+    if (!headerEl) return;
+    const group = headerEl.closest('.topic-group');
+    const body = group && group.querySelector('.topic-group-body');
+    const expanded = headerEl.getAttribute('aria-expanded') !== 'false';
+    headerEl.setAttribute('aria-expanded', !expanded);
+    if (body) body.classList.toggle('is-collapsed', expanded);
+    const topicId = headerEl.getAttribute('data-topic-id');
+    if (topicId) saveTopicCollapseState(topicId, !expanded);
+}
+
+function getTopicCollapseState(topicId) {
+    try {
+        const raw = localStorage.getItem('rakesh-ai-topic-collapse');
+        const state = raw ? JSON.parse(raw) : {};
+        return state[topicId] === true;
+    } catch (_) { return false; }
+}
+
+function saveTopicCollapseState(topicId, collapsed) {
+    try {
+        const raw = localStorage.getItem('rakesh-ai-topic-collapse') || '{}';
+        const state = JSON.parse(raw);
+        state[topicId] = collapsed;
+        localStorage.setItem('rakesh-ai-topic-collapse', JSON.stringify(state));
+    } catch (_) {}
+}
+
 window.onload = () => {
+    applyTheme(getStoredTheme());
+    const themeBtn = document.getElementById('theme-toggle');
+    if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+    const libraryHeader = document.getElementById('library-section-header');
+    if (libraryHeader) libraryHeader.addEventListener('click', () => toggleSidebarSection(libraryHeader));
     loadSession(0);
     renderSidebar();
     renderLibrary();
@@ -93,8 +159,11 @@ async function renderLibrary() {
     const list = document.getElementById('library-list');
     list.innerHTML = books.map(b => `
         <div class="library-item">
-            <span title="${b.filename}">📖 ${b.filename.length > 18 ? b.filename.substring(0, 18) + '…' : b.filename}</span>
-            <span onclick="deleteBook(${b.id})" style="cursor:pointer">✕</span>
+            <span class="library-item-icon" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M8 7h8"/><path d="M8 11h8"/></svg>
+            </span>
+            <span class="library-item-name" title="${escapeHtml(b.filename)}">${escapeHtml(b.filename.length > 18 ? b.filename.substring(0, 18) + '…' : b.filename)}</span>
+            <button type="button" class="delete-btn library-item-delete" onclick="deleteBook(${b.id})" title="Remove from library" aria-label="Remove">×</button>
         </div>
     `).join('');
 
@@ -135,39 +204,105 @@ async function loadSession(id) {
     } catch (err) { console.error(err); }
 }
 
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 async function renderSidebar() {
     try {
         const res = await fetch('/topics');
         const topics = await res.json();
+        const sessionsByTopicId = await Promise.all(
+            topics.map(t => fetch(`/topics/${t.id}/sessions`).then(r => r.json()))
+        );
+
+        const fragment = document.createDocumentFragment();
+        topics.forEach((t, i) => {
+            const sessions = sessionsByTopicId[i] || [];
+            const collapsed = getTopicCollapseState(String(t.id));
+            const topicGroup = document.createElement('div');
+            topicGroup.className = 'topic-group';
+            topicGroup.innerHTML = `
+                <div class="topic-group-header" data-topic-id="${t.id}" aria-expanded="${!collapsed}" aria-controls="sbox-${t.id}">
+                    <button type="button" class="topic-group-header-trigger">
+                        <span class="topic-group-chevron" aria-hidden="true">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                        </span>
+                        <span class="topic-group-title">${escapeHtml(t.title)}</span>
+                    </button>
+                    <button type="button" class="delete-btn delete-btn-icon delete-topic-btn" onclick="event.stopPropagation(); deleteTopic(${t.id})" title="Delete topic" aria-label="Delete topic"><span class="delete-btn-icon-inner"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></span></button>
+                </div>
+                <div class="topic-group-body" id="sbox-${t.id}" ${collapsed ? ' class="is-collapsed"' : ''}>
+                    <div class="topic-group-body-inner">
+                        <div class="topic-group-sessions"></div>
+                        <button type="button" class="sidebar-action-link add-session-link" onclick="event.stopPropagation(); showSubInput(${t.id})">
+                            <span class="add-session-icon" aria-hidden="true">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                            </span>
+                            Session
+                        </button>
+                        <input type="text" id="sub-input-${t.id}" class="sidebar-inline-input sidebar-sub-input" style="display:none;" placeholder="Session name..." onkeydown="if(event.key==='Enter') saveSubSession(${t.id})">
+                    </div>
+                </div>
+            `;
+
+            const headerEl = topicGroup.querySelector('.topic-group-header');
+            const headerTrigger = topicGroup.querySelector('.topic-group-header-trigger');
+            if (headerTrigger) headerTrigger.addEventListener('click', () => toggleTopicGroup(headerEl));
+
+            const sContainer = topicGroup.querySelector('.topic-group-sessions');
+            if (sContainer) {
+                sessions.forEach(s => {
+                    const sItem = document.createElement('div');
+                    sItem.className = 'session-item' + (currentSessionId === s.id ? ' active' : '');
+                    sItem.innerHTML = `
+                        <span class="session-item-dot" aria-hidden="true"></span>
+                        <span class="session-item-label">${escapeHtml(s.subtitle)}</span>
+                        <button type="button" class="delete-btn delete-btn-icon delete-session-btn" onclick="event.stopPropagation(); deleteSession(${s.id})" title="Delete chat" aria-label="Delete chat"><span class="delete-btn-icon-inner"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></span></button>
+                    `;
+                    sItem.onclick = (e) => { if (!e.target.closest('.delete-session-btn')) loadSession(s.id); };
+                    sContainer.appendChild(sItem);
+                });
+            }
+            fragment.appendChild(topicGroup);
+        });
+
         const list = document.getElementById('history-list');
         list.innerHTML = '';
-
-        for (const t of topics) {
-            const topicGroup = document.createElement('div');
-            topicGroup.style.marginBottom = "15px";
-            topicGroup.innerHTML = `
-                <div class="topic-header" style="display:flex; justify-content:space-between; align-items:center;">
-                    <span>📘 ${t.title}</span>
-                    <button type="button" class="delete-btn delete-topic-btn" onclick="event.stopPropagation(); deleteTopic(${t.id})" title="Delete topic" aria-label="Delete topic"></button>
-                </div>
-                <div id="sbox-${t.id}" style="padding-left:10px; margin-top:5px;"></div>
-                <button onclick="showSubInput(${t.id})" style="background:none; border:none; color:#666; font-size:11px; cursor:pointer;">+ Session</button>
-                <input type="text" id="sub-input-${t.id}" style="display:none; width:100%; background:#2d2d2d; color:white; border:1px solid #444; padding:5px; margin-top:5px;" onkeydown="if(event.key==='Enter') saveSubSession(${t.id})">
-            `;
-            list.appendChild(topicGroup);
-
-            const sRes = await fetch(`/topics/${t.id}/sessions`);
-            const sessions = await sRes.json();
-            const sContainer = topicGroup.querySelector(`#sbox-${t.id}`);
-            sessions.forEach(s => {
-                const sItem = document.createElement('div');
-                sItem.className = 'session-item' + (currentSessionId === s.id ? ' active' : '');
-                sItem.innerHTML = `<span>${s.subtitle}</span><button type="button" class="delete-btn delete-session-btn" onclick="event.stopPropagation(); deleteSession(${s.id})" title="Delete chat" aria-label="Delete chat"></button>`;
-                sItem.onclick = () => loadSession(s.id);
-                sContainer.appendChild(sItem);
-            });
-        }
+        list.appendChild(fragment);
     } catch (e) { console.error(e); }
+}
+
+function injectCodeBlockCopyButtons(container) {
+    if (!container) return;
+    container.querySelectorAll('pre').forEach(pre => {
+        if (pre.closest('.code-block-wrapper')) return;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+        const codeEl = pre.querySelector('code') || pre;
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'code-block-copy';
+        copyBtn.textContent = 'Copy';
+        copyBtn.title = 'Copy code';
+        copyBtn.setAttribute('aria-label', 'Copy code');
+        copyBtn.addEventListener('click', () => {
+            const text = codeEl.textContent || '';
+            navigator.clipboard.writeText(text).then(() => {
+                copyBtn.textContent = 'Copied!';
+                copyBtn.classList.add('copied');
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            });
+        });
+        pre.parentNode.insertBefore(wrapper, pre);
+        wrapper.appendChild(pre);
+        wrapper.appendChild(copyBtn);
+    });
 }
 
 function appendMsg(role, text, msgId = null, modelLabel = null) {
@@ -189,6 +324,7 @@ function appendMsg(role, text, msgId = null, modelLabel = null) {
     `;
 
     chatContainer.appendChild(div);
+    if (role === 'ai') injectCodeBlockCopyButtons(div.querySelector('.content'));
     chatContainer.scrollTop = chatContainer.scrollHeight;
     return div;
 }
@@ -258,6 +394,7 @@ async function sendQuery() {
                     } else if (data.type === 'content' && text !== undefined) {
                         fullText += text;
                         contentDiv.innerHTML = marked.parse(fullText);
+                        injectCodeBlockCopyButtons(contentDiv);
                         document.getElementById('chat-container').scrollTop = document.getElementById('chat-container').scrollHeight;
                     } else if (data.type === 'done') {
                         if (thinkingBlock) {
@@ -265,11 +402,13 @@ async function sendQuery() {
                             if (thinkingContent) thinkingContent.textContent = '';
                         }
                         contentDiv.innerHTML = marked.parse(fullText);
+                        injectCodeBlockCopyButtons(contentDiv);
                         document.getElementById('chat-container').scrollTop = document.getElementById('chat-container').scrollHeight;
                     } else if (text !== undefined && data.type !== 'thinking') {
                         // Legacy: plain { text } without type
                         fullText += text;
                         contentDiv.innerHTML = marked.parse(fullText);
+                        injectCodeBlockCopyButtons(contentDiv);
                         document.getElementById('chat-container').scrollTop = document.getElementById('chat-container').scrollHeight;
                     }
                 } catch (e) {}
@@ -281,6 +420,7 @@ async function sendQuery() {
             if (thinkingContent) thinkingContent.textContent = '';
         }
         contentDiv.innerHTML = marked.parse(fullText);
+        injectCodeBlockCopyButtons(contentDiv);
     } catch (err) {
         loaderTarget.innerHTML = '';
         contentDiv.innerHTML = "Error: Local AI connection lost.";

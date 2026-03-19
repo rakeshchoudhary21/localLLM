@@ -108,6 +108,10 @@ app.get('/sessions/:id/messages', wrap(async (req, res) => {
 
 // --- CHAT LOGIC ---
 
+// How many prior Q&A turns to send to the model (0 = only current message; 1 = last exchange; 2 = last 2 exchanges).
+// Lower = better focus/accuracy, less context; higher = more continuity when you switch model or refer back.
+const MAX_HISTORY_TURNS = 2;
+
 app.post('/ask', wrap(async (req, res) => {
     let { prompt, sessionId, model, modelLabel, bookId, bookName } = req.body;
     const activeSession = (sessionId !== undefined && sessionId !== null && sessionId !== '') ? Number(sessionId) : 0;
@@ -157,9 +161,11 @@ app.post('/ask', wrap(async (req, res) => {
         [activeSession, prompt, savedBookId]
     );
 
-    // 3. Prepare Chat History
+    // 3. Prepare Chat History (only last N turns + current message to keep context small and accuracy high)
     const history = await db.all("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC", [activeSession]);
-    const messagesForAi = history.map(m => ({ role: m.role, content: m.content }));
+    const maxMessages = MAX_HISTORY_TURNS === 0 ? 1 : 2 * MAX_HISTORY_TURNS + 1;
+    const recentHistory = history.slice(-maxMessages);
+    const messagesForAi = recentHistory.map(m => ({ role: m.role, content: m.content }));
 
     // 4. Inject Library Context into the latest user prompt if found (from the selected book only)
     if (context) {
