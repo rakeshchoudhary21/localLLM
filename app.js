@@ -108,9 +108,10 @@ app.get('/sessions/:id/messages', wrap(async (req, res) => {
 
 // --- CHAT LOGIC ---
 
-// How many prior Q&A turns to send to the model (0 = only current message; 1 = last exchange; 2 = last 2 exchanges).
-// Lower = better focus/accuracy, less context; higher = more continuity when you switch model or refer back.
+// How many prior Q&A turns to send (0 = only current; 1 = last exchange; 2 = last 2 exchanges).
+// For tutoring: we also always include the first Q&A ("index" reply) so the model can refer back to it.
 const MAX_HISTORY_TURNS = 2;
+const KEEP_INDEX_IN_CONTEXT = true; // first user + first assistant message always sent when present
 
 app.post('/ask', wrap(async (req, res) => {
     let { prompt, sessionId, model, modelLabel, bookId, bookName } = req.body;
@@ -161,11 +162,18 @@ app.post('/ask', wrap(async (req, res) => {
         [activeSession, prompt, savedBookId]
     );
 
-    // 3. Prepare Chat History (only last N turns + current message to keep context small and accuracy high)
+    // 3. Prepare Chat History: last N turns + current; optionally keep first Q&A ("index") in context for tutoring
     const history = await db.all("SELECT role, content FROM messages WHERE session_id = ? ORDER BY id ASC", [activeSession]);
-    const maxMessages = MAX_HISTORY_TURNS === 0 ? 1 : 2 * MAX_HISTORY_TURNS + 1;
-    const recentHistory = history.slice(-maxMessages);
-    const messagesForAi = recentHistory.map(m => ({ role: m.role, content: m.content }));
+    const maxRecent = MAX_HISTORY_TURNS === 0 ? 1 : 2 * MAX_HISTORY_TURNS + 1;
+    let combined;
+    if (KEEP_INDEX_IN_CONTEXT && history.length > maxRecent && history.length >= 2) {
+        const indexMsgs = history.slice(0, 2);
+        const recentStart = Math.max(2, history.length - maxRecent);
+        combined = indexMsgs.concat(history.slice(recentStart));
+    } else {
+        combined = history.slice(-maxRecent);
+    }
+    const messagesForAi = combined.map(m => ({ role: m.role, content: m.content }));
 
     // 4. Inject Library Context into the latest user prompt if found (from the selected book only)
     if (context) {

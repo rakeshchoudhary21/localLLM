@@ -183,6 +183,22 @@ async function deleteBook(id) {
     }
 }
 
+function updateTutorHint() {
+    const hint = document.getElementById('tutor-hint');
+    if (!hint) return;
+    const hasUserMsg = document.querySelectorAll('#chat-container .user-message').length > 0;
+    hint.style.display = hasUserMsg ? 'none' : 'flex';
+}
+
+function useIndexPrompt() {
+    const promptEl = document.getElementById('prompt');
+    if (promptEl) {
+        promptEl.value = "Give me an index or overview of this topic so I can learn step by step and ask follow-up questions.";
+        promptEl.focus();
+        promptEl.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+}
+
 async function loadSession(id) {
     currentSessionId = id;
     document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
@@ -200,6 +216,7 @@ async function loadSession(id) {
         } else {
             messages.forEach(m => appendMsg(m.role === 'assistant' ? 'ai' : 'user', m.content, m.id, m.role === 'assistant' ? (m.model || null) : null));
         }
+        updateTutorHint();
         renderSidebar();
     } catch (err) { console.error(err); }
 }
@@ -337,6 +354,7 @@ async function sendQuery() {
     if (!promptText) return;
 
     appendMsg('user', promptText);
+    updateTutorHint();
     pInput.value = '';
     pInput.style.height = '44px';
 
@@ -364,6 +382,32 @@ async function sendQuery() {
         const decoder = new TextDecoder();
         let fullText = "";
         let firstChunk = true;
+        const chatContainerEl = document.getElementById('chat-container');
+        const STREAM_UPDATE_INTERVAL_MS = 80;
+        let lastStreamPaint = 0;
+        let streamPaintScheduled = false;
+
+        function paintStreamContent() {
+            contentDiv.innerHTML = marked.parse(fullText);
+            injectCodeBlockCopyButtons(contentDiv);
+            chatContainerEl.scrollTop = chatContainerEl.scrollHeight;
+            lastStreamPaint = Date.now();
+            streamPaintScheduled = false;
+        }
+
+        function scheduleStreamPaint() {
+            if (streamPaintScheduled) return;
+            const elapsed = Date.now() - lastStreamPaint;
+            if (elapsed >= STREAM_UPDATE_INTERVAL_MS || lastStreamPaint === 0) {
+                paintStreamContent();
+                return;
+            }
+            streamPaintScheduled = true;
+            setTimeout(() => {
+                if (!streamPaintScheduled) return;
+                paintStreamContent();
+            }, STREAM_UPDATE_INTERVAL_MS - elapsed);
+        }
 
         while (true) {
             const { done, value } = await reader.read();
@@ -390,37 +434,30 @@ async function sendQuery() {
                             thinkingContent.textContent += text;
                             thinkingContent.scrollTop = thinkingContent.scrollHeight;
                         }
-                        document.getElementById('chat-container').scrollTop = document.getElementById('chat-container').scrollHeight;
+                        chatContainerEl.scrollTop = chatContainerEl.scrollHeight;
                     } else if (data.type === 'content' && text !== undefined) {
                         fullText += text;
-                        contentDiv.innerHTML = marked.parse(fullText);
-                        injectCodeBlockCopyButtons(contentDiv);
-                        document.getElementById('chat-container').scrollTop = document.getElementById('chat-container').scrollHeight;
+                        scheduleStreamPaint();
                     } else if (data.type === 'done') {
                         if (thinkingBlock) {
                             thinkingBlock.style.display = 'none';
                             if (thinkingContent) thinkingContent.textContent = '';
                         }
-                        contentDiv.innerHTML = marked.parse(fullText);
-                        injectCodeBlockCopyButtons(contentDiv);
-                        document.getElementById('chat-container').scrollTop = document.getElementById('chat-container').scrollHeight;
+                        streamPaintScheduled = false;
+                        paintStreamContent();
                     } else if (text !== undefined && data.type !== 'thinking') {
-                        // Legacy: plain { text } without type
                         fullText += text;
-                        contentDiv.innerHTML = marked.parse(fullText);
-                        injectCodeBlockCopyButtons(contentDiv);
-                        document.getElementById('chat-container').scrollTop = document.getElementById('chat-container').scrollHeight;
+                        scheduleStreamPaint();
                     }
                 } catch (e) {}
             }
         }
-        // Ensure thinking is hidden and final answer shown when stream ends normally
+        streamPaintScheduled = false;
         if (thinkingBlock) {
             thinkingBlock.style.display = 'none';
             if (thinkingContent) thinkingContent.textContent = '';
         }
-        contentDiv.innerHTML = marked.parse(fullText);
-        injectCodeBlockCopyButtons(contentDiv);
+        paintStreamContent();
     } catch (err) {
         loaderTarget.innerHTML = '';
         contentDiv.innerHTML = "Error: Local AI connection lost.";
